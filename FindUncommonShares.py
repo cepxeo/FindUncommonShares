@@ -28,6 +28,10 @@ import dns.resolver, dns.exception
 
 COMMON_SHARES = [
     "C$",
+    "D$",
+    "E$",
+    "F$",
+    "G$",
     "ADMIN$", "IPC$",
     "PRINT$", "print$",
     "fax$", "FAX$",
@@ -87,6 +91,18 @@ def get_domain_computers(ldap_server, ldap_session):
         }
     return results
 
+def get_computers_from_file(filename):
+    with open (filename,'r') as f:
+        lines = f.readlines()
+        results = {}
+        for line in lines:
+            print(line)
+            shortline = line.split(".")[0]
+            results[shortline] = {
+            'dNSHostName':  line.strip(),
+            'sAMAccountName': shortline + "$"
+            }
+    return results
 
 def parse_args():
     print("FindUncommonShares v2.0 - by @podalirius_\n")
@@ -99,10 +115,12 @@ def parse_args():
     parser.add_argument("-no-colors", dest="colors", action="store_false", default=True, help="Disables colored output mode")
     parser.add_argument("-I", "--ignore-hidden-shares", dest="ignore_hidden_shares", action="store_true", default=False, help="Ignores hidden shares (shares ending with $)")
     parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=20, required=False, help="Number of threads (default: 20)")
+    parser.add_argument("-i", "--input-file", dest="input_file", type=str, default="hosts.txt", required=False, help="Input file with the list of hosts (one per line)")
     parser.add_argument("-o", "--output-file", dest="output_file", type=str, default="shares.json", required=False, help="Output file to store the results in. (default: shares.json)")
 
     authconn = parser.add_argument_group('authentication & connection')
-    authconn.add_argument('--dc-ip', required=True, action='store', metavar="ip address", help='IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter')
+    authconn.add_argument('--dc-ip', required=True, dest="dc_ip", action='store', metavar="ip address", help='IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter')
+    authconn.add_argument('--dns', required=False, dest="dns_server", metavar="DNS", help='Alternate DNS Server for the name resolution')
     authconn.add_argument("-d", "--domain", dest="auth_domain", metavar="DOMAIN", action="store", help="(FQDN) domain to authenticate to")
     authconn.add_argument("-u", "--user", dest="auth_username", metavar="USER", action="store", help="user to authenticate with")
 
@@ -375,7 +393,12 @@ def init_smb_session(args, target_ip, domain, username, password, address, lmhas
 
 
 def worker(args, target_name, domain, username, password, address, lmhash, nthash, lock):
-    target_ip = nslookup.Nslookup(dns_servers=[args.dc_ip], verbose=args.debug).dns_lookup(target_name).answer
+    dns_servers = []
+    if args.dns_server:
+        dns_servers = [args.dns_server]
+    else: 
+        dns_servers = [args.dc_ip]
+    target_ip = nslookup.Nslookup(dns_servers=dns_servers, verbose=args.debug).dns_lookup(target_name).answer
     if len(target_ip) != 0:
         target_ip = target_ip[0]
         try:
@@ -479,7 +502,10 @@ if __name__ == '__main__':
 
     if not args.quiet:
         print("[>] Extracting all computers ...")
-    computers = get_domain_computers(ldap_server, ldap_session)
+    if not args.input_file:
+        computers = get_domain_computers(ldap_server, ldap_session)
+    else:
+        computers = get_computers_from_file(args.input_file)
 
     if not args.quiet:
         print("[+] Found %d computers in the domain." % len(computers.keys()))
